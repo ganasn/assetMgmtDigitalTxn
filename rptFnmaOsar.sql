@@ -16,6 +16,10 @@ DECLARE @RR_BB_Latest MONEY = 0, @RR_BB_Prior MONEY = 0, @RR_EB_Latest MONEY = 0
 --			(SELECT PropertyId FROM tblProperty WHERE ControlId_F = (SELECT ControlID FROM (tblControlMaster INNER JOIN tblNote ON ControlId = ControlId_F) INNER JOIN tblNoteExp ON NoteId_F = NoteId WHERE ServicerLoanNumber = @ServicerLoanNumber))
 --	ORDER BY SortOrder
 
+-- HEADER SETUP
+--SELECT a.PropertyName, b.ServicerLoanNumber FROM tblProperty a INNER JOIN tblNote c ON a.ControlId_F = c.ControlId_F INNER JOIN tblNoteExp b ON b.NoteId_F = c.NoteId AND b.ServicerLoanNumber = @ServicerLoanNumber
+
+
 -- FOUNDATION SETUP
 DECLARE @fnmaOsar TABLE (
 	LOANNUMBER BIGINT, 
