@@ -142,6 +142,8 @@ UPDATE c
 		c.N_OCC_PCT = ISNULL(a.Occupancy * 100, 0), 
 		c.N_OCC_DT = CONVERT(DATE, a.StatementDate),
 		c.N_TAX_EXEMPT = 0,
+		c.N_DS_A = a.AnnualDebtService,
+		c.N_RR_EXP = a.CashAndReserves,
 		-- Gana: added 2/25/19 - END
 		c.COMMENTS = a.Comments
 	FROM tblOpStatementHeader a 
@@ -153,6 +155,8 @@ UPDATE c
 UPDATE a
 	SET ServicerLoanNumber = c.ServicerLoanNumber
 	FROM @fnmaLoans a INNER JOIN tblNote b ON MD_ControlId = b.ControlId_F INNER JOIN tblNoteExp c ON c.NoteId_F = b.NoteId
+
+SELECT * FROM @fnmaLoans
 
 UPDATE a
 	SET a.AM_FNAME = d.FirstName, 
@@ -286,7 +290,13 @@ UPDATE a SET
 		, a.B_RR_EB = 0
 		, a.B_RR_ADDS = 0
 		, a.N_RR_BB = ISNULL(b.BEG_BAL, 0)
-		, a.N_RR_EXP = ISNULL(b.DISBURSALS, 0)
+		-- Gana: Changed to accommodate a forced R/R Expense value from Op Stmt on Backshop UI - BEGIN
+		, a.N_RR_EXP = (CASE 
+							WHEN N_RR_EXP IS NULL THEN ISNULL(b.DISBURSALS, 0)
+							ELSE N_RR_EXP
+						END
+		)
+		-- Gana: Changed to accommodate a forced R/R Expense value from Op Stmt on Backshop UI - END
 		, a.N_RR_EB = ISNULL(b.END_BAL, 0)
 		, a.N_RR_ADDS = (ISNULL(b.END_BAL, 0) - ISNULL(b.BEG_BAL, 0) - ISNULL(b.DISBURSALS, 0))
 	FROM @fnmaLoans a INNER JOIN @rr_data b ON a.ServicerLoanNumber = b.LOAN_NUMBER AND b.TXN_YEAR = (YEAR(GETDATE()) - 1)
@@ -345,7 +355,13 @@ UPDATE a SET
 	FROM @Liens a INNER JOIN ds_cte b ON a.SecondLiens = b.LOANNBR
 
 UPDATE @fnmaLoans SET
-		N_DS_A = ISNULL((SELECT DSAmount FROM @Liens WHERE ServicerLoanNumber = FirstLien AND LienOrder = 1), 0)
+		--Gana: Changed to accommodate corrections forced via Backshop Op Stmt UI - BEGIN
+		N_DS_A = (CASE
+					WHEN N_DS_A IS NULL THEN ISNULL((SELECT DSAmount FROM @Liens WHERE ServicerLoanNumber = FirstLien AND LienOrder = 1), 0)
+					ELSE N_DS_A
+				END
+					)
+		--Gana: Changed to accommodate corrections forced via Backshop Op Stmt UI - END
 		, N_DS_B = ISNULL((SELECT DSAmount FROM @Liens WHERE ServicerLoanNumber = FirstLien AND LienOrder = 2), 0)
 		, N_DS_C = 0
 		, N_DS_MEZ = 0
