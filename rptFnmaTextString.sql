@@ -71,6 +71,7 @@ DECLARE @fnmaLoans TABLE (MD_ControlId NVARCHAR (20), MD_PropertyId INT, MD_OpSt
 	N_ORM MONEY,
 	N_OIN MONEY,
 	N_RET MONEY,
+	N_TAX_EXEMPT INT,
 	N_OTH MONEY,
 	N_CRS MONEY,
 	N_CEO MONEY,
@@ -137,11 +138,11 @@ UPDATE c
 		c.STMT_END_DT = CONVERT(DATE, a.StatementDate), 
 		c.IS_ANNUALIZED = 0,
 		c.AssetSeqNum = '001',
-
+		-- Gana: added 2/25/19 - BEGIN
 		c.N_OCC_PCT = ISNULL(a.Occupancy * 100, 0), 
 		c.N_OCC_DT = CONVERT(DATE, a.StatementDate),
-
-
+		c.N_TAX_EXEMPT = 0,
+		-- Gana: added 2/25/19 - END
 		c.COMMENTS = a.Comments
 	FROM tblOpStatementHeader a 
 	INNER JOIN tblProperty b ON PropertyId_F = b.PropertyId 
