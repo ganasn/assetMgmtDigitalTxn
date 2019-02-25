@@ -56,6 +56,10 @@ DECLARE @fnmaLoans TABLE (MD_ControlId NVARCHAR (20), MD_PropertyId INT, MD_OpSt
 	N_ILN MONEY,
 	N_CIN MONEY,
 	N_IVC MONEY,
+
+	N_OCC_PCT FLOAT, 
+	N_OCC_DT DATE,
+
 	N_OMF MONEY,
 	N_OGA MONEY,
 	N_OPY MONEY,
@@ -113,8 +117,6 @@ SELECT DISTINCT a.ControlId_F FROM loanset a
 		AND a.ControlMasterWorkflowId_F = b.ControlMasterWorkflowId_F 
 		AND a.DeliverableEventTypeCD_F = 'AMSUBMIT' AND a.CompletedDate IS  NULL AND b.SkippedSw <> 1
 		AND b.DeliverableEventTypeCD_F = 'AMFIN' AND b.CompletedDate IS NOT NULL
--- COMMENT THIS
-UNION SELECT '19-0210'
 		
 UPDATE c 
 	SET c.MD_OpstatementHeaderId = OpStatementHeaderId, c.MD_PropertyId = b.PropertyId, 
@@ -127,22 +129,25 @@ UPDATE c
 						),
 		c.isAnnual = (
 						CASE 
-							WHEN MonthsCovered = 12 THEN 1
-							ELSE 0
+							WHEN MonthsCovered = 12 THEN 0
+							ELSE 1
 						END
 						),
 		c.STMT_START_DT = CONVERT(DATE, a.StartDate), 
-		c.STMT_END_DT = CONVERT(DATE, a.StatementDate),
+		c.STMT_END_DT = CONVERT(DATE, a.StatementDate), 
 		c.IS_ANNUALIZED = 0,
 		c.AssetSeqNum = '001',
+
+		c.N_OCC_PCT = ISNULL(a.Occupancy * 100, 0), 
+		c.N_OCC_DT = CONVERT(DATE, a.StatementDate),
+
+
 		c.COMMENTS = a.Comments
 	FROM tblOpStatementHeader a 
 	INNER JOIN tblProperty b ON PropertyId_F = b.PropertyId 
 	INNER JOIN @fnmaLoans c ON c.MD_ControlId = b.ControlId_F
-	-- UNCOMMENT THIS
-	WHERE /*OpStatementTypeCd_F IN ('ANN2', 'ANN1', 'ANNQ') AND*/ 
-	-- UNCOMMENT THIS
-		StatementDate = (SELECT MAX(StatementDate) FROM tblOpStatementHeader a INNER JOIN tblProperty b ON PropertyId_F = b.PropertyId INNER JOIN @fnmaLoans c ON c.MD_ControlId = b.ControlId_F /*WHERE OpStatementTypeCd_F IN ('ANN2', 'ANN1', 'ANNQ')*/) 
+	WHERE OpStatementTypeCd_F IN ('ANN2', 'ANN1', 'ANNQ') AND
+		StatementDate = (SELECT MAX(StatementDate) FROM tblOpStatementHeader a INNER JOIN tblProperty b ON PropertyId_F = b.PropertyId INNER JOIN @fnmaLoans c ON c.MD_ControlId = b.ControlId_F WHERE OpStatementTypeCd_F IN ('ANN2', 'ANN1', 'ANNQ')) 
 
 UPDATE a
 	SET ServicerLoanNumber = c.ServicerLoanNumber
@@ -151,7 +156,7 @@ UPDATE a
 UPDATE a
 	SET a.AM_FNAME = d.FirstName, 
 		a.AM_LNAME = d.LastName, 
-		a.AM_PHONE = d.BusinessPhone, 
+		a.AM_PHONE = ISNULL(FORMAT(CAST(d.BusinessPhone AS NUMERIC), '##########'),'2063897750'), 
 		a.AM_EMAIL = d.EmailAddress 
 	FROM @fnmaLoans a INNER JOIN tblControlMaster b ON a.MD_ControlId = b.ControlId
 	INNER JOIN tblSecUser c ON b.AssetManager_UserId_F = c.UserId
@@ -357,10 +362,5 @@ UPDATE a SET
 	FROM @fnmaLoans a INNER JOIN HSB_HIST.DEBT_SERVICE b ON a.ServicerLoanNumber = b.[Lender/Servicer Loan #]
 
 -- FNMA Loan Number update using DEBT SERVICE - END
-
--- COMMENT THIS
-		INSERT INTO @fnmaLoans
-			SELECT * FROM @fnmaLoans
--- COMMENT THIS
 
 SELECT * FROM @fnmaLoans
