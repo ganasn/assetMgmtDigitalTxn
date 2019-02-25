@@ -156,8 +156,6 @@ UPDATE a
 	SET ServicerLoanNumber = c.ServicerLoanNumber
 	FROM @fnmaLoans a INNER JOIN tblNote b ON MD_ControlId = b.ControlId_F INNER JOIN tblNoteExp c ON c.NoteId_F = b.NoteId
 
-SELECT * FROM @fnmaLoans
-
 UPDATE a
 	SET a.AM_FNAME = d.FirstName, 
 		a.AM_LNAME = d.LastName, 
