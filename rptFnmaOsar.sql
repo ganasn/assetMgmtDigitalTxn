@@ -3,7 +3,7 @@ USE CRE_ODS
 GO
 
 DECLARE @ServicerLoanNumber BIGINT = 900100415; --600101246 900100415 900100632 439119 
-DECLARE @OpStmtName_Prior INT = 2349, @OpStmtName_Latest INT = 2351; 
+DECLARE @OpStmtName_Prior INT = 3351, @OpStmtName_Latest INT = 3352; 
 DECLARE @DS_A_Note_Prior MONEY = 0, @DS_B_Note_Prior MONEY = 0, @DS_A_Note_Latest MONEY = 0, @DS_B_Note_Latest MONEY = 0;
 DECLARE @RR_BB_Latest MONEY = 0, @RR_BB_Prior MONEY = 0, @RR_EB_Latest MONEY = 0, @RR_EB_Prior MONEY = 0, @RR_Exp_Latest MONEY = 0, @RR_Exp_Prior MONEY = 0;
 

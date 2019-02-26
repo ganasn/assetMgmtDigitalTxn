@@ -2,7 +2,19 @@ USE Backshop_DEV
 GO
 
 
-UPDATE tblControlMaster SET LoanStatusCd_F = 'F', AuditUpdateDate = GETDATE(), AuditUpdateUserId = 'SYSTEM' WHERE ControlId = ''
+DECLARE @LoanMaster TABLE (CONTROLID NVARCHAR (7), LOANNUMBER BIGINT, PROPTYPE NVARCHAR (3), EFFDATE DATE)
+
+INSERT INTO @LoanMaster
+	SELECT a.ControlId, c.ServicerLoanNUmber, e.PropertyTypeMajorCd_F AS [PROP_TYPE], MAX(d.DATA_EFFDATE) FROM dbo.tblControlMaster a 
+		INNER JOIN tblNote b ON a.ControlId = b.ControlId_F
+		INNER JOIN tblNoteExp c ON c.NoteId_F = b.NoteId
+		INNER JOIN tblProperty e ON e.ControlId_F = a.ControlId
+		LEFT JOIN HSB_HIST.STRATEGY_EXTRACT d ON d.[LOANNBR] = c.ServicerLoanNumber
+		GROUP BY a.ControlId, c.ServicerLoanNUmber, e.PropertyTypeMajorCd_F
+		ORDER BY a.ControlId, CONVERT(BIGINT, ServicerLoanNUmber)
+
+
+UPDATE tblControlMaster SET LoanStatusCd_F = 'F', AuditUpdateDate = GETDATE(), AuditUpdateUserId = 'SYSTEM' WHERE ControlId IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE IS NULL  GROUP BY PROPTYPE)
 
 UPDATE tblControlMasterDealPhaseTemplateItem SET 
 	CompletedDate = GETDATE(), SkippedSw = 1, AuditUpdateUserId = 'SYSTEM', AuditUpdateDate = GETDATE()
