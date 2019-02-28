@@ -2,8 +2,8 @@
 USE CRE_ODS
 GO
 
-DECLARE @ServicerLoanNumber BIGINT = 900100415; --600101246 900100415 900100632 439119 
-DECLARE @OpStmtName_Prior INT = 3351, @OpStmtName_Latest INT = 3352; 
+DECLARE @ServicerLoanNumber BIGINT = 900100128; --600101246 900100415 900100632 439119 
+DECLARE @OpStmtName_Prior INT = 2582, @OpStmtName_Latest INT = 2830; 
 DECLARE @DS_A_Note_Prior MONEY = 0, @DS_B_Note_Prior MONEY = 0, @DS_A_Note_Latest MONEY = 0, @DS_B_Note_Latest MONEY = 0;
 DECLARE @RR_BB_Latest MONEY = 0, @RR_BB_Prior MONEY = 0, @RR_EB_Latest MONEY = 0, @RR_EB_Prior MONEY = 0, @RR_Exp_Latest MONEY = 0, @RR_Exp_Prior MONEY = 0;
 
@@ -34,6 +34,9 @@ DECLARE @fnmaOsar TABLE (
 	ADJUSTMENTS MONEY, 
 	NORMALIZED MONEY
 	)
+
+-- IDENTIFY Control Id FOR SUBSEQUENT PROCESSING
+DECLARE @ControlId NVARCHAR (7) = (SELECT ControlID_F FROM tblNote a INNER JOIN tblNoteExp b ON a.NoteId = b.NoteId_F AND b.ServicerLoanNumber = @ServicerLoanNumber) 
 
 
 -- OPERATING STATEMENTS
@@ -75,14 +78,14 @@ ORDER BY
 
 
 INSERT INTO @fnmaOsar (MD_STATEMENT_ID, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_ORDER, MD_NOI_CAT_TYPE_NAME, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, NORMALIZED) 
-	(SELECT OpStatementHeaderId_F, 10, MAX(b.OrderKey) + 10 ,'Income', StatementYear, 'Effective Gross Income', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
+	(SELECT OpStatementHeaderId_F, 10, 890 /*MAX(b.OrderKey) + 10*/ ,'Income', StatementYear, 'Effective Gross Income', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
 		INNER JOIN tblOpStatementHeader ON OpStatementHeaderId = OpStatementHeaderId_F
 		INNER JOIN tblzCdNOICategory b ON NOICategoryCd = NOICategoryCd_F
 		WHERE OpStatementHeaderId_F IN (@OpStmtName_Latest, @OpStmtName_Prior)
 			AND NOICategoryTypeCd_F = 'I'
 		GROUP BY OpStatementHeaderId_F, StatementYear)
 	UNION 
-	(SELECT OpStatementHeaderId_F, 20, MAX(b.OrderKey) + 10 ,'Expenses', StatementYear, 'Total Expenses', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
+	(SELECT OpStatementHeaderId_F, 20, 960 /*MAX(b.OrderKey) + 10 */,'Expenses', StatementYear, 'Total Expenses', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
 		INNER JOIN tblOpStatementHeader ON OpStatementHeaderId = OpStatementHeaderId_F
 		INNER JOIN tblzCdNOICategory b ON NOICategoryCd = NOICategoryCd_F
 		WHERE OpStatementHeaderId_F IN  (@OpStmtName_Latest, @OpStmtName_Prior)
@@ -384,6 +387,44 @@ INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD
 	SELECT @ServicerLoanNumber, 0, 40, 'Cash Flow Analysis', @OpStmtName_Latest, 70, '' , 'DSCR: (NCF After CapEx / Debt Service - A, B Note):', (SELECT REPORTED FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 0 AND NOI_CATEGORY LIKE '%Net%Cas%Flo%')/(SELECT SUM(REPORTED) FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 0 AND NOI_CATEGORY LIKE '%Deb%Serv%'), 0,  (SELECT NORMALIZED FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 0 AND NOI_CATEGORY LIKE '%Net%Cas%Flo%')/(SELECT SUM(NORMALIZED) FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 0 AND NOI_CATEGORY LIKE '%Deb%Serv%')
 	UNION 
 	SELECT @ServicerLoanNumber, 1, 40, 'Cash Flow Analysis', @OpStmtName_Prior, 70, '' , 'DSCR: (NCF After CapEx / Debt Service - A, B Note):', (SELECT REPORTED FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 1 AND NOI_CATEGORY LIKE '%Net%Cas%Flo%')/(SELECT SUM(REPORTED) FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 1 AND NOI_CATEGORY LIKE '%Deb%Serv%'), 0,  (SELECT NORMALIZED FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 1 AND NOI_CATEGORY LIKE '%Net%Cas%Flo%')/(SELECT SUM(NORMALIZED) FROM @fnmaOsar WHERE MD_STATEMENT_ORDER = 1 AND NOI_CATEGORY LIKE '%Deb%Serv%')
+
+
+-- Gana: Accounting for missing NOI categories - BEGIN
+-- ADD NOI CATEGORIES THAT DO NOT HAVE ENTRIES IN THE "LATEST" O/S
+INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_TYPE_NAME, MD_STATEMENT_ID, MD_NOI_CAT_ORDER, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, ADJUSTMENTS, NORMALIZED)
+	SELECT @ServicerLoanNumber, 0, CASE 
+			WHEN c.NOICategoryTypeCd_F = 'I' THEN 10
+			WHEN c.NOICategoryTypeCd_F = 'O' THEN 20
+			WHEN c.NOICategoryTypeCd_F = 'C' THEN 30
+		END, CASE 
+			WHEN c.NOICategoryTypeCd_F = 'I' THEN 'Income'
+			WHEN c.NOICategoryTypeCd_F = 'O' THEN 'Expenses'
+			WHEN c.NOICategoryTypeCd_F = 'C' THEN 'Capital Expenditures'
+		END, @OpStmtName_Latest, c.OrderKey, (SELECT StatementYear FROM tblOpStatementHeader WHERE OpStatementHeaderId = @OpStmtName_Latest), c.NOICategoryDesc, 0, 0, 0
+		FROM @fnmaOsar a 
+			RIGHT JOIN (tblzCdNOICatPropType b 
+				INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0 AND b.PropertyTypeMajorCd_F = (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId)
+				) ON a.NOI_CATEGORY = c.NOICategoryDesc AND a.MD_STATEMENT_ID = @OpStmtName_Latest 
+		WHERE a.NOI_CATEGORY IS NULL
+
+-- ADD NOI CATEGORIES THAT DO NOT HAVE ENTRIES IN THE "PRIOR" O/S
+INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_TYPE_NAME, MD_STATEMENT_ID, MD_NOI_CAT_ORDER, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, ADJUSTMENTS, NORMALIZED)
+	SELECT @ServicerLoanNumber, 1, CASE 
+			WHEN c.NOICategoryTypeCd_F = 'I' THEN 10
+			WHEN c.NOICategoryTypeCd_F = 'O' THEN 20
+			WHEN c.NOICategoryTypeCd_F = 'C' THEN 30
+		END, CASE 
+			WHEN c.NOICategoryTypeCd_F = 'I' THEN 'Income'
+			WHEN c.NOICategoryTypeCd_F = 'O' THEN 'Expenses'
+			WHEN c.NOICategoryTypeCd_F = 'C' THEN 'Capital Expenditures'
+		END, @OpStmtName_Prior, c.OrderKey, (SELECT StatementYear FROM tblOpStatementHeader WHERE OpStatementHeaderId = @OpStmtName_Prior), c.NOICategoryDesc, 0, 0, 0
+		FROM @fnmaOsar a 
+			RIGHT JOIN (tblzCdNOICatPropType b 
+				INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0 AND b.PropertyTypeMajorCd_F = (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId)
+				) ON a.NOI_CATEGORY = c.NOICategoryDesc AND a.MD_STATEMENT_ID = @OpStmtName_Prior 
+		WHERE a.NOI_CATEGORY IS NULL
+
+-- Gana: Accounting for missing NOI categories - END
 
 -- SSRS DATASET
 SELECT * FROM @fnmaOsar ORDER BY LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_ORDER
