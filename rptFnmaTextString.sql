@@ -145,12 +145,15 @@ UPDATE c
 		c.N_DS_A = a.AnnualDebtService,
 		c.N_RR_EXP = a.CashAndReserves,
 		-- Gana: added 2/25/19 - END
-		c.COMMENTS = a.Comments
+		--Gana: changed 3/1/19 to handle NULL comments - BEGIN
+		c.COMMENTS = ISNULL(a.Comments, '')
+		--Gana: changed 3/1/19 to handle NULL comments - END
 	FROM tblOpStatementHeader a 
-	INNER JOIN tblProperty b ON PropertyId_F = b.PropertyId 
-	INNER JOIN @fnmaLoans c ON c.MD_ControlId = b.ControlId_F
-	WHERE OpStatementTypeCd_F IN ('ANN2', 'ANN1', 'ANNQ') AND
-		StatementDate = (SELECT MAX(StatementDate) FROM tblOpStatementHeader a INNER JOIN tblProperty b ON PropertyId_F = b.PropertyId INNER JOIN @fnmaLoans c ON c.MD_ControlId = b.ControlId_F WHERE OpStatementTypeCd_F IN ('ANN2', 'ANN1', 'ANNQ')) 
+	--Gana: Changed 3/1/19 to handle different MAX(statement dates) by individual property/op stmt - BEGIN
+		INNER JOIN tblProperty b ON PropertyId_F = b.PropertyId 
+			AND a.StatementDate = (SELECT MAX(StatementDate) FROM tblOpStatementHeader d INNER JOIN tblProperty e ON d.PropertyId_F = b.PropertyId WHERE d.OpStatementTypeCd_F IN ('ANN2', 'ANN1', 'ANNQ')) 
+		INNER JOIN @fnmaLoans c ON c.MD_ControlId = b.ControlId_F
+	--Gana: Changed 3/1/19 to handle different MAX(statement dates) by individual property/op stmt - END
 
 UPDATE a
 	SET ServicerLoanNumber = c.ServicerLoanNumber
@@ -218,8 +221,16 @@ UPDATE @fnmaLoans SET
 	N_CASH_RES = 0,
 	N_LAST_SP = 0,
 	B_CASH_RES = 0,
-	B_LAST_SP = 0 
-
+	B_LAST_SP = 0, 
+	--Gana: Added 3/1/19 to handle defaults - BEGIN
+	QA_RR_WAIVED = '',
+	WV_REASON = '',
+	WV_COMMENTS = '',
+	EM_PM_ID = '',
+	EM_ENERGY_USE_INTENSITY = '',
+	EM_SCORE = '',
+	EM_DATE = '' 
+	--Gana: Added 3/1/19 to handle defaults - END
 
 -- REPLACEMENT RESERVE ACTIVITY PROCESSING - BEGIN
 
@@ -297,7 +308,9 @@ UPDATE a SET
 		-- Gana: Changed to accommodate a forced R/R Expense value from Op Stmt on Backshop UI - END
 		, a.N_RR_EB = ISNULL(b.END_BAL, 0)
 		, a.N_RR_ADDS = (ISNULL(b.END_BAL, 0) - ISNULL(b.BEG_BAL, 0) - ISNULL(b.DISBURSALS, 0))
-	FROM @fnmaLoans a INNER JOIN @rr_data b ON a.ServicerLoanNumber = b.LOAN_NUMBER AND b.TXN_YEAR = (YEAR(GETDATE()) - 1)
+	--Gana: Changed 3/1/19 to LEFT JOIN to handle loans that do NOT have R/R collected - BEGIN
+	FROM @fnmaLoans a LEFT JOIN @rr_data b ON a.ServicerLoanNumber = b.LOAN_NUMBER AND b.TXN_YEAR = (YEAR(GETDATE()) - 1)
+	--Gana: Changed 3/1/19 to LEFT JOIN to handle loans that do NOT have R/R collected - END
 
 -- REPLACEMENT RESERVE ACTIVITY PROCESSING - END 
 
@@ -372,9 +385,11 @@ UPDATE @fnmaLoans SET
 
 -- FNMA Loan Number update using DEBT SERVICE - BEGIN
 
+	--Gana: Changed 3/1/19 to handle missing FNMA MAMP Extract data - BEGIN
 UPDATE a SET
-		a.FNMALoanNumber = b.[FM Loan #/CUSIP#/Deal ID]
-	FROM @fnmaLoans a INNER JOIN HSB_HIST.DEBT_SERVICE b ON a.ServicerLoanNumber = b.[Lender/Servicer Loan #]
+		a.FNMALoanNumber = ISNULL(b.[FM Loan #/CUSIP#/Deal ID], 0)
+	FROM @fnmaLoans a LEFT JOIN HSB_HIST.DEBT_SERVICE b ON a.ServicerLoanNumber = b.[Lender/Servicer Loan #]
+	--Gana: Changed 3/1/19 to handle missing FNMA MAMP Extract data - END
 
 -- FNMA Loan Number update using DEBT SERVICE - END
 
