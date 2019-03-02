@@ -223,7 +223,7 @@ UPDATE @fnmaLoans SET
 	B_CASH_RES = 0,
 	B_LAST_SP = 0, 
 	--Gana: Added 3/1/19 to handle defaults - BEGIN
-	QA_RR_WAIVED = '',
+	QA_RR_WAIVED = 1,
 	WV_REASON = '',
 	WV_COMMENTS = '',
 	EM_PM_ID = '',
@@ -265,27 +265,35 @@ DECLARE @rr_data TABLE (LOAN_NUMBER BIGINT, BEG_BAL MONEY, END_BAL MONEY, DISBUR
 INSERT INTO @rr_data (TXN_YEAR, LOAN_NUMBER)
 	SELECT DISTINCT YEAR(TXN_DATE), LOAN_NUMBER FROM @rr_txn
 
-UPDATE @rr_data SET
-	DISBURSALS = (
-		SELECT SUM(ISNULL([DIFF], 0)) AS [DISBURSALS] FROM (
-			SELECT ISNULL((b.[BEG_BAL] - a.[BEG_BAL]), 0) AS [DIFF], a.* FROM @rr_txn a INNER JOIN @rr_txn b ON a.ROW_NUM + 1 = b.ROW_NUM --AND a.[DDA_AC_NUM] = b.[DDA_AC_NUM]  
-			) AS B
-		WHERE B.TXN_DESC LIKE '%DIS%' AND YEAR(B.TXN_DATE) IN (YEAR(GETDATE()) - 1) AND LOAN_NUMBER = LOAN_NUMBER AND TXN_YEAR = YEAR(TXN_DATE) 
-		GROUP BY LOAN_NUMBER, YEAR(B.TXN_DATE)
+	-- Gana: Changed 3/1/19 to fix JOIN issue leading to inaccurate disbursals computed - BEGIN
+;WITH rr_exp_cte AS ( 											
+	SELECT SUM(DIFF) AS DISBURSALS, LOAN_NUMBER, YEAR(TXN_DATE) AS TXN_YEAR FROM (
+		SELECT ISNULL((b.[BEG_BAL] - a.[BEG_BAL]), 0) AS [DIFF], a.* FROM @rr_txn a INNER JOIN @rr_txn b ON a.ROW_NUM + 1 = b.ROW_NUM AND a.LOAN_NUMBER = b.LOAN_NUMBER --AND a.[DDA_AC_NUM] = b.[DDA_AC_NUM]  
+		) AS B
+	WHERE B.TXN_DESC LIKE '%DIS%' AND YEAR(B.TXN_DATE) IN (YEAR(GETDATE()) - 1) --AND LOAN_NUMBER = LOAN_NUMBER --AND TXN_YEAR = YEAR(TXN_DATE) 
+	GROUP BY LOAN_NUMBER, YEAR(B.TXN_DATE)
 	)
 
+
+UPDATE a SET
+	a.DISBURSALS = b.DISBURSALS
+	FROM @rr_data a INNER JOIN rr_exp_cte b ON a.LOAN_NUMBER = b.LOAN_NUMBER AND b.TXN_YEAR = a.TXN_YEAR
+	
+	-- Gana: Changed 3/1/19 to fix JOIN issue leading to inaccurate disbursals computed - END
+																	
 
 DECLARE @rr_dates TABLE (DATES DATE, TXN_YEAR INT, LOAN_NUMBER BIGINT)
 
 INSERT INTO @rr_dates
 	SELECT MIN(TXN_DATE) AS DATES, YEAR(TXN_DATE) AS TXN_YEAR, LOAN_NUMBER FROM @rr_txn GROUP BY LOAN_NUMBER, YEAR(TXN_DATE)
 
+	--Gana: Changed 3/1/19 to remove "unwanted" update to DISBURSALS - BEGIN
 UPDATE a SET 
-	a.BEG_BAL = b.BEG_BAL,
-	a.DISBURSALS = ISNULL(a.DISBURSALS, 0)
+	a.BEG_BAL = b.BEG_BAL
 	FROM @rr_data a INNER JOIN @rr_txn b ON a.LOAN_NUMBER = b.LOAN_NUMBER 
 		INNER JOIN @rr_dates c ON a.LOAN_NUMBER = c.LOAN_NUMBER
 	WHERE b.TXN_DATE = c.DATES AND a.TXN_YEAR = c.TXN_YEAR
+	--Gana: Changed 3/1/19 to remove "unwanted" update to DISBURSALS - END
 
 UPDATE a SET 
 	a.END_BAL = ISNULL(b.BEG_BAL, 0)
@@ -300,9 +308,10 @@ UPDATE a SET
 		, a.B_RR_ADDS = 0
 		, a.N_RR_BB = ISNULL(b.BEG_BAL, 0)
 		-- Gana: Changed to accommodate a forced R/R Expense value from Op Stmt on Backshop UI - BEGIN
+		-- Gana: changed 3/1/19 to represent disbursals as POSITIVE - BEGIN
 		, a.N_RR_EXP = (CASE 
-							WHEN N_RR_EXP IS NULL THEN ISNULL(b.DISBURSALS, 0)
-							ELSE N_RR_EXP
+							WHEN N_RR_EXP IS NULL THEN ABS(ISNULL(b.DISBURSALS, 0))
+							ELSE ABS(ISNULL(N_RR_EXP, 0))
 						END
 		)
 		-- Gana: Changed to accommodate a forced R/R Expense value from Op Stmt on Backshop UI - END
