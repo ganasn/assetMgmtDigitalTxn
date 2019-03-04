@@ -223,13 +223,11 @@ UPDATE @fnmaLoans SET
 	B_CASH_RES = 0,
 	B_LAST_SP = 0, 
 	--Gana: Added 3/1/19 to handle defaults - BEGIN
+	--Gana: On 3/4/19, removed defaults to WV_REASON, EM_ENERGY_USE_INTENSITY, EM_SCORE, & EM_DATE - BEGIN
 	QA_RR_WAIVED = 1,
-	WV_REASON = '',
 	WV_COMMENTS = '',
-	EM_PM_ID = '',
-	EM_ENERGY_USE_INTENSITY = '',
-	EM_SCORE = '',
-	EM_DATE = '' 
+	EM_PM_ID = ''
+	--Gana: On 3/4/19, removed defaults to WV_REASON, EM_ENERGY_USE_INTENSITY, EM_SCORE, & EM_DATE - END
 	--Gana: Added 3/1/19 to handle defaults - END
 
 -- REPLACEMENT RESERVE ACTIVITY PROCESSING - BEGIN

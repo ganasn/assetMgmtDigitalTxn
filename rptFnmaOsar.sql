@@ -3,8 +3,8 @@ USE CRE_ODS
 GO
 
 DECLARE @ServicerLoanNumber BIGINT = 900100128; --600101246 900100415 900100632 439119 
-DECLARE @OpStmtName_Prior INT = 2582, @OpStmtName_Latest INT = 2830; 
-DECLARE @DS_A_Note_Prior MONEY = 0, @DS_B_Note_Prior MONEY = 0, @DS_A_Note_Latest MONEY = 0, @DS_B_Note_Latest MONEY = 0;
+DECLARE @OpStmtName_Prior INT = 2838, @OpStmtName_Latest INT = 2835; 
+DECLARE @DS_A_Note_Prior MONEY = 414517.92, @DS_B_Note_Prior MONEY = 0, @DS_A_Note_Latest MONEY = 0, @DS_B_Note_Latest MONEY = 0;
 DECLARE @RR_BB_Latest MONEY = 0, @RR_BB_Prior MONEY = 0, @RR_EB_Latest MONEY = 0, @RR_EB_Prior MONEY = 0, @RR_Exp_Latest MONEY = 0, @RR_Exp_Prior MONEY = 0;
 
 
@@ -233,6 +233,20 @@ IF @DS_B_Note_Prior <> 0
 			WHERE NOI_CATEGORY = 'Debt Service - B Note:' AND MD_STATEMENT_ORDER = 1
 	END
 
+	--Gana: On 3/4/19, adding DS on B-Note when there isn't one - BEGIN
+	IF NOT EXISTS (SELECT * FROM @fnmaOsar WHERE NOI_CATEGORY = 'Debt Service - B Note:' AND MD_STATEMENT_ORDER = 0)
+	BEGIN 
+		INSERT INTO @fnmaOsar
+			SELECT @ServicerLoanNumber, 0, 40, 'Cash Flow Analysis', @OpStmtName_Latest, 30, '', 'Debt Service - B Note:', 0, 0, 0
+	END
+	IF NOT EXISTS (SELECT * FROM @fnmaOsar WHERE NOI_CATEGORY = 'Debt Service - B Note:' AND MD_STATEMENT_ORDER = 1)
+	BEGIN 
+		INSERT INTO @fnmaOsar
+			SELECT @ServicerLoanNumber, 1, 40, 'Cash Flow Analysis', @OpStmtName_Prior, 30, '', 'Debt Service - B Note:', 0, 0, 0
+	END
+
+	--Gana: On 3/4/19, adding DS on B-Note when there isn't one - END
+
 
 -- DEBT SERVICE - END
 
@@ -266,89 +280,126 @@ DECLARE @rr_txn TABLE (ROW_NUM INT, LOAN_NUMBER BIGINT, ESCROW_SEQ INT, BEG_BAL 
 		INSERT INTO @rr_txn
 			SELECT * FROM rr_cte
 
-
-DECLARE @rr_data TABLE (LOAN_NUMBER BIGINT, BEG_BAL MONEY, END_BAL MONEY, DISBURSALS MONEY, TXN_YEAR INT)
-
-	--RR: DATASET TO HOLD R/R DATA FOR OSAR
-INSERT INTO @rr_data (TXN_YEAR, LOAN_NUMBER)
-	SELECT DISTINCT YEAR(TXN_DATE), LOAN_NUMBER FROM @rr_txn
-
-UPDATE @rr_data SET
-	DISBURSALS = (
-		SELECT SUM(ISNULL([DIFF], 0)) AS [DISBURSALS] FROM (
-			SELECT ISNULL((b.[BEG_BAL] - a.[BEG_BAL]), 0) AS [DIFF], a.* FROM @rr_txn a INNER JOIN @rr_txn b ON a.ROW_NUM + 1 = b.ROW_NUM --AND a.[DDA_AC_NUM] = b.[DDA_AC_NUM]  
-			) AS B
-		WHERE B.TXN_DESC LIKE '%DIS%' AND YEAR(B.TXN_DATE) IN (YEAR(GETDATE()) - 1, YEAR(GETDATE()) - 2) AND LOAN_NUMBER = LOAN_NUMBER AND TXN_YEAR = YEAR(TXN_DATE) 
-		GROUP BY LOAN_NUMBER, YEAR(B.TXN_DATE)
-	)
-
-	--RR: TEMP DATASET TO HOLD FIRST TRANSACTION DATES FOR EASY DATA ACCESS FROM RR_TXN TEMP DATASET 
-DECLARE @rr_dates TABLE (DATES DATE, TXN_YEAR INT, LOAN_NUMBER BIGINT)
-
-INSERT INTO @rr_dates
-	SELECT MIN(TXN_DATE) AS DATES, YEAR(TXN_DATE) AS TXN_YEAR, LOAN_NUMBER FROM @rr_txn GROUP BY LOAN_NUMBER, YEAR(TXN_DATE)
-
-	--RR: CONSOLIDATE R/R DATASET
-UPDATE a SET 
-	a.BEG_BAL = b.BEG_BAL,
-	a.DISBURSALS = ISNULL(a.DISBURSALS, 0)
-	FROM @rr_data a INNER JOIN @rr_txn b ON a.LOAN_NUMBER = b.LOAN_NUMBER 
-		INNER JOIN @rr_dates c ON a.LOAN_NUMBER = c.LOAN_NUMBER
-	WHERE b.TXN_DATE = c.DATES AND a.TXN_YEAR = c.TXN_YEAR
-
-UPDATE a SET 
-	a.END_BAL = ISNULL(b.BEG_BAL, 0)
-	FROM @rr_data a INNER JOIN @rr_txn b ON a.LOAN_NUMBER = b.LOAN_NUMBER 
-		INNER JOIN @rr_dates c ON a.LOAN_NUMBER = c.LOAN_NUMBER
-	WHERE b.TXN_DATE = c.DATES AND a.TXN_YEAR = (c.TXN_YEAR - 1)
-
-	--RR: ADDRESS USER INPUT, IF ANY, FOR REPLACEMENT RESERVES	
-IF @RR_BB_Latest <> 0 
+		--Gana: On 3/4/19, added IF section to short-circuit entire process when there are no reserves collected on a loan -AND- ELSE section to default records in such case - END
+	IF EXISTS (SELECT * FROM @rr_txn) 
 	BEGIN
-		UPDATE @rr_data SET BEG_BAL = @RR_BB_Latest WHERE TXN_YEAR = YEAR(GETDATE())-1 
-	END
-IF @RR_BB_Prior <> 0 
-	BEGIN
-		UPDATE @rr_data SET BEG_BAL = @RR_BB_Prior WHERE TXN_YEAR = YEAR(GETDATE())-2 
-	END
-IF @RR_EB_Latest <> 0 
-	BEGIN
-		UPDATE @rr_data SET END_BAL = @RR_EB_Latest WHERE TXN_YEAR = YEAR(GETDATE())-1
-	END
-IF @RR_EB_Prior <> 0 
-	BEGIN
-		UPDATE @rr_data SET END_BAL = @RR_EB_Prior WHERE TXN_YEAR = YEAR(GETDATE())-2 
-	END
-IF @RR_Exp_Latest <> 0 
-	BEGIN
-		UPDATE @rr_data SET DISBURSALS = -1 * @RR_Exp_Latest WHERE TXN_YEAR = YEAR(GETDATE())-1
-	END
-IF @RR_Exp_Prior <> 0 
-	BEGIN
-		UPDATE @rr_data SET DISBURSALS = -1 * @RR_Exp_Prior WHERE TXN_YEAR = YEAR(GETDATE())-2 
-	END
+		DECLARE @rr_data TABLE (LOAN_NUMBER BIGINT, BEG_BAL MONEY, END_BAL MONEY, DISBURSALS MONEY, TXN_YEAR INT)
+
+			--RR: DATASET TO HOLD R/R DATA FOR OSAR
+		INSERT INTO @rr_data (TXN_YEAR, LOAN_NUMBER)
+			SELECT DISTINCT YEAR(TXN_DATE), LOAN_NUMBER FROM @rr_txn
+
+		UPDATE @rr_data SET
+			DISBURSALS = (
+				SELECT SUM(ISNULL([DIFF], 0)) AS [DISBURSALS] FROM (
+					SELECT ISNULL((b.[BEG_BAL] - a.[BEG_BAL]), 0) AS [DIFF], a.* FROM @rr_txn a INNER JOIN @rr_txn b ON a.ROW_NUM + 1 = b.ROW_NUM --AND a.[DDA_AC_NUM] = b.[DDA_AC_NUM]  
+					) AS B
+				WHERE B.TXN_DESC LIKE '%DIS%' AND YEAR(B.TXN_DATE) IN (YEAR(GETDATE()) - 1, YEAR(GETDATE()) - 2) AND LOAN_NUMBER = LOAN_NUMBER AND TXN_YEAR = YEAR(TXN_DATE) 
+				GROUP BY LOAN_NUMBER, YEAR(B.TXN_DATE)
+			)
+
+			--RR: TEMP DATASET TO HOLD FIRST TRANSACTION DATES FOR EASY DATA ACCESS FROM RR_TXN TEMP DATASET 
+		DECLARE @rr_dates TABLE (DATES DATE, TXN_YEAR INT, LOAN_NUMBER BIGINT)
+
+		INSERT INTO @rr_dates
+			SELECT MIN(TXN_DATE) AS DATES, YEAR(TXN_DATE) AS TXN_YEAR, LOAN_NUMBER FROM @rr_txn GROUP BY LOAN_NUMBER, YEAR(TXN_DATE)
+
+			--RR: CONSOLIDATE R/R DATASET
+		UPDATE a SET 
+			a.BEG_BAL = b.BEG_BAL,
+			a.DISBURSALS = ISNULL(a.DISBURSALS, 0)
+			FROM @rr_data a INNER JOIN @rr_txn b ON a.LOAN_NUMBER = b.LOAN_NUMBER 
+				INNER JOIN @rr_dates c ON a.LOAN_NUMBER = c.LOAN_NUMBER
+			WHERE b.TXN_DATE = c.DATES AND a.TXN_YEAR = c.TXN_YEAR
+
+		UPDATE a SET 
+			a.END_BAL = ISNULL(b.BEG_BAL, 0)
+			FROM @rr_data a INNER JOIN @rr_txn b ON a.LOAN_NUMBER = b.LOAN_NUMBER 
+				INNER JOIN @rr_dates c ON a.LOAN_NUMBER = c.LOAN_NUMBER
+			WHERE b.TXN_DATE = c.DATES AND a.TXN_YEAR = (c.TXN_YEAR - 1)
+
+			--RR: ADDRESS USER INPUT, IF ANY, FOR REPLACEMENT RESERVES	
+		IF @RR_BB_Latest <> 0 
+			BEGIN
+				UPDATE @rr_data SET BEG_BAL = @RR_BB_Latest WHERE TXN_YEAR = YEAR(GETDATE())-1 
+			END
+		IF @RR_BB_Prior <> 0 
+			BEGIN
+				UPDATE @rr_data SET BEG_BAL = @RR_BB_Prior WHERE TXN_YEAR = YEAR(GETDATE())-2 
+			END
+		IF @RR_EB_Latest <> 0 
+			BEGIN
+				UPDATE @rr_data SET END_BAL = @RR_EB_Latest WHERE TXN_YEAR = YEAR(GETDATE())-1
+			END
+		IF @RR_EB_Prior <> 0 
+			BEGIN
+				UPDATE @rr_data SET END_BAL = @RR_EB_Prior WHERE TXN_YEAR = YEAR(GETDATE())-2 
+			END
+		IF @RR_Exp_Latest <> 0 
+			BEGIN
+				UPDATE @rr_data SET DISBURSALS = -1 * @RR_Exp_Latest WHERE TXN_YEAR = YEAR(GETDATE())-1
+			END
+		IF @RR_Exp_Prior <> 0 
+			BEGIN
+				UPDATE @rr_data SET DISBURSALS = -1 * @RR_Exp_Prior WHERE TXN_YEAR = YEAR(GETDATE())-2 
+			END
 	
-	--RR: INCORPORATE R/R DATA INTO FNMA OSAR DATASET
-INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_TYPE_NAME, MD_STATEMENT_ID, MD_NOI_CAT_ORDER, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, ADJUSTMENTS, NORMALIZED) 
-	(SELECT LOAN_NUMBER, CASE 
-			WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
-			WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
-		END, 50, 'Replacement Reserve Activity', 0, 10, '', 'Beginning Balance:', 0, 0, BEG_BAL FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
-	UNION 
-	(SELECT LOAN_NUMBER, CASE 
-			WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
-			WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
-		END, 50, 'Replacement Reserve Activity', 0, 20, '', '  Less: Expenditures:', 0, 0, DISBURSALS FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
-	UNION
-	(SELECT LOAN_NUMBER, CASE 
-			WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
-			WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
-		END, 50, 'Replacement Reserve Activity', 0, 30, '', '  Plus: Additions:', 0, 0, (END_BAL - DISBURSALS - BEG_BAL) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
-	UNION
-	(SELECT LOAN_NUMBER, CASE 
-			WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
-			WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
-		END, 50, 'Replacement Reserve Activity', 0, 40, '', 'Ending Balance:', 0, 0, END_BAL FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
+			--RR: INCORPORATE R/R DATA INTO FNMA OSAR DATASET
+			--Gana: On 3/4/19, included CASE to populate OpStmt ID instead of 0 for MD_STATEMENT_ID - BEGIN
+		INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_TYPE_NAME, MD_STATEMENT_ID, MD_NOI_CAT_ORDER, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, ADJUSTMENTS, NORMALIZED) 
+			(SELECT LOAN_NUMBER, CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
+				END, 50, 'Replacement Reserve Activity', CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Prior
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Latest
+				END, 10, '', 'Beginning Balance:', 0, 0, BEG_BAL FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
+			UNION 
+			(SELECT LOAN_NUMBER, CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
+				END, 50, 'Replacement Reserve Activity', CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Prior
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Latest
+				END, 20, '', '  Less: Expenditures:', 0, 0, DISBURSALS FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
+			UNION
+			(SELECT LOAN_NUMBER, CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
+				END, 50, 'Replacement Reserve Activity', CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Prior
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Latest
+				END, 30, '', '  Plus: Additions:', 0, 0, (END_BAL - DISBURSALS - BEG_BAL) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
+			UNION
+			(SELECT LOAN_NUMBER, CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 1
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN 0
+				END, 50, 'Replacement Reserve Activity', CASE 
+					WHEN TXN_YEAR = (SELECT MIN(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Prior
+					WHEN TXN_YEAR = (SELECT MAX(TXN_YEAR) FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR) THEN @OpStmtName_Latest
+				END, 40, '', 'Ending Balance:', 0, 0, END_BAL FROM @rr_data WHERE YEAR(GETDATE()) <> TXN_YEAR)
+			--Gana: On 3/4/19, included CASE to populate OpStmt ID instead of 0 for MD_STATEMENT_ID - END
+	END
+	ELSE
+	BEGIN
+		INSERT INTO @fnmaOsar
+			SELECT @ServicerLoanNumber, 0, 50, 'Replacement Reserve Activity', @OpStmtName_Latest, 10, '', 'Beginning Balance:', 0, 0, 0
+			UNION
+			SELECT @ServicerLoanNumber, 0, 50, 'Replacement Reserve Activity', @OpStmtName_Latest, 20, '', '  Less: Expenditures:', 0, 0, 0
+			UNION
+			SELECT @ServicerLoanNumber, 0, 50, 'Replacement Reserve Activity', @OpStmtName_Latest, 30, '', '  Plus: Additions:', 0, 0, 0
+			UNION
+			SELECT @ServicerLoanNumber, 0, 50, 'Replacement Reserve Activity', @OpStmtName_Latest, 40, '', 'Ending Balance:', 0, 0, 0
+			UNION 
+			SELECT @ServicerLoanNumber, 1, 50, 'Replacement Reserve Activity', @OpStmtName_Prior, 10, '', 'Beginning Balance:', 0, 0, 0
+			UNION
+			SELECT @ServicerLoanNumber, 1, 50, 'Replacement Reserve Activity', @OpStmtName_Prior, 20, '', '  Less: Expenditures:', 0, 0, 0
+			UNION
+			SELECT @ServicerLoanNumber, 1, 50, 'Replacement Reserve Activity', @OpStmtName_Prior, 30, '', '  Plus: Additions:', 0, 0, 0
+			UNION
+			SELECT @ServicerLoanNumber, 1, 50, 'Replacement Reserve Activity', @OpStmtName_Prior, 40, '', 'Ending Balance:', 0, 0, 0
+	END
+		--Gana: On 3/4/19, added IF section to short-circuit entire process when there are no reserves collected on a loan -AND- ELSE section to default records in such case - END
 
 -- REPLACEMENT RESERVES - END
 
