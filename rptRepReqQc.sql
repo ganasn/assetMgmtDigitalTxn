@@ -7,7 +7,7 @@ GO
 
 DECLARE @ASSET_MANAGER NVARCHAR (200), @REP_REQ_STATUS NVARCHAR (200)
 
-SET @ASSET_MANAGER = 'YI KE'
+SET @ASSET_MANAGER = 'SETH PRESTWICH'
 SET @REP_REQ_STATUS = 'ALL' -- AMRVWDONE OPEN
 
 IF @REP_REQ_STATUS =  'OPEN'
@@ -56,7 +56,10 @@ BEGIN
 			--Gana: On 3/6/19, changed condition to lookup AM in CADM instead of Backshop - BEGIN
 			UPPER(jj.ASSET_MANAGER) IN (@ASSET_MANAGER) AND
 			--Gana: On 3/6/19, changed condition to lookup AM in CADM instead of Backshop - END
-			a.ReportingRequirementStatusCd_F IS NULL
+			a.ReportingRequirementStatusCd_F IS NULL 
+			--Gana: On 3/7/19, added condition to include ONLY ACTIVE reporting requirements - BEGIN
+			AND a.Inactive = 0
+			--Gana: On 3/7/19, added condition to include ONLY ACTIVE reporting requirements - END
 		ORDER BY a.AsOfDate, ee.ServicerLoanNumber
 END
 ELSE IF @REP_REQ_STATUS =  'ALL'
@@ -103,6 +106,9 @@ BEGIN
 			--Gana: On 3/6/19, changed condition to lookup AM in CADM instead of Backshop - BEGIN
 			UPPER(jj.ASSET_MANAGER) IN (@ASSET_MANAGER) 
 			--Gana: On 3/6/19, changed condition to lookup AM in CADM instead of Backshop - END
+			--Gana: On 3/7/19, added condition to include ONLY ACTIVE reporting requirements - BEGIN
+			AND a.Inactive = 0
+			--Gana: On 3/7/19, added condition to include ONLY ACTIVE reporting requirements - END
 		ORDER BY a.AsOfDate, ee.ServicerLoanNumber
 END
 ELSE
@@ -150,6 +156,9 @@ BEGIN
 			UPPER(jj.ASSET_MANAGER) IN (@ASSET_MANAGER) AND
 			--Gana: On 3/6/19, changed condition to lookup AM in CADM instead of Backshop - END
 			a.ReportingRequirementStatusCd_F IN (@REP_REQ_STATUS) 
+			--Gana: On 3/7/19, added condition to include ONLY ACTIVE reporting requirements - BEGIN
+			AND a.Inactive = 0
+			--Gana: On 3/7/19, added condition to include ONLY ACTIVE reporting requirements - END
 		ORDER BY a.AsOfDate, ee.ServicerLoanNumber
 END				
 					
