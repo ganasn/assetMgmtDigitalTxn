@@ -2,7 +2,7 @@
 USE CRE_ODS
 GO
 
-DECLARE @ServicerLoanNumber BIGINT = 509172; --600101246 900100415 900100632 439119 
+DECLARE @ServicerLoanNumber BIGINT = 600101593; --600101246 900100415 900100632 439119 
 DECLARE @debtService FLOAT
 DECLARE @startDate DATE = '2017-02-15', @endDate DATE = '2018-06-15';
 	
@@ -149,21 +149,21 @@ ORDER BY
 
 
 INSERT INTO @fnmaOsar (MD_STATEMENT_ID, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_ORDER, MD_NOI_CAT_TYPE_NAME, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, NORMALIZED) 
-	(SELECT OpStatementHeaderId_F, 10, MAX(b.OrderKey) + 10 ,'Income', StatementYear, 'Effective Gross Income', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
+	(SELECT OpStatementHeaderId_F, 10, 9000,'Income', StatementYear, 'Effective Gross Income', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
 		INNER JOIN tblOpStatementHeader ON OpStatementHeaderId = OpStatementHeaderId_F
 		INNER JOIN tblzCdNOICategory b ON NOICategoryCd = NOICategoryCd_F
 		WHERE OpStatementHeaderId_F IN (SELECT MD_STMT_ID FROM @OpStmts)
 			AND NOICategoryTypeCd_F = 'I'
 		GROUP BY OpStatementHeaderId_F, StatementYear)
 	UNION 
-	(SELECT OpStatementHeaderId_F, 20, MAX(b.OrderKey) + 10,'Expenses', StatementYear, 'Total Expenses', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
+	(SELECT OpStatementHeaderId_F, 20, 9000,'Expenses', StatementYear, 'Total Expenses', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
 		INNER JOIN tblOpStatementHeader ON OpStatementHeaderId = OpStatementHeaderId_F
 		INNER JOIN tblzCdNOICategory b ON NOICategoryCd = NOICategoryCd_F
 		WHERE OpStatementHeaderId_F IN  (SELECT MD_STMT_ID FROM @OpStmts)
 			AND NOICategoryTypeCd_F = 'O'
 		GROUP BY OpStatementHeaderId_F, StatementYear)
 	UNION
-	(SELECT OpStatementHeaderId_F, 30, MAX(b.OrderKey) + 10 ,'Capital Expenditures', StatementYear, 'Total Capital', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
+	(SELECT OpStatementHeaderId_F, 30, 9000,'Capital Expenditures', StatementYear, 'Total Capital', SUM(ItemAmount), SUM(ItemAmountAfterAdjustment) FROM tblOpStatementDetail 
 		INNER JOIN tblOpStatementHeader ON OpStatementHeaderId = OpStatementHeaderId_F
 		INNER JOIN tblzCdNOICategory b ON NOICategoryCd = NOICategoryCd_F
 		WHERE OpStatementHeaderId_F IN  (SELECT MD_STMT_ID FROM @OpStmts)
@@ -242,6 +242,39 @@ INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD
 		
 -- Gana: Accounting for missing NOI categories - BEGIN
 
+	DECLARE @tmpOpId INT 
+	DECLARE op_cursor CURSOR FOR
+		SELECT MD_STMT_ID FROM @OpStmts;
+
+	OPEN op_cursor;
+
+	FETCH NEXT FROM op_cursor INTO @tmpOpId
+
+	WHILE @@FETCH_STATUS = 0
+	BEGIN 
+		INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_TYPE_NAME, MD_STATEMENT_ID, MD_NOI_CAT_ORDER, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, ADJUSTMENTS, NORMALIZED)
+			SELECT @ServicerLoanNumber, d.MD_STMT_ORDER, CASE 
+					WHEN c.NOICategoryTypeCd_F = 'I' THEN 10
+					WHEN c.NOICategoryTypeCd_F = 'O' THEN 20
+					WHEN c.NOICategoryTypeCd_F = 'C' THEN 30
+				END, CASE 
+					WHEN c.NOICategoryTypeCd_F = 'I' THEN 'Income'
+					WHEN c.NOICategoryTypeCd_F = 'O' THEN 'Expenses'
+					WHEN c.NOICategoryTypeCd_F = 'C' THEN 'Capital Expenditures'
+				END, @tmpOpId, c.OrderKey, d.STMT_NAME, c.NOICategoryDesc, 0, 0, 0
+				FROM @fnmaOsar a 
+					RIGHT JOIN (tblzCdNOICatPropType b 
+						INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0 AND b.PropertyTypeMajorCd_F = (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId)
+						) ON a.NOI_CATEGORY = c.NOICategoryDesc AND a.MD_STATEMENT_ID = @tmpOpId
+					INNER JOIN @OpStmts d ON d.MD_STMT_ID = @tmpOpId
+				WHERE a.NOI_CATEGORY IS NULL AND b.InactiveSw = 0 AND b.TemplateSW = 1
+
+		FETCH NEXT FROM op_cursor INTO @tmpOpId
+	END
+
+	CLOSE op_cursor
+	DEALLOCATE op_cursor
+
 
 -- Gana: Accounting for missing NOI categories - END
 
@@ -250,7 +283,3 @@ SELECT * FROM @fnmaOsar ORDER BY LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE
 
 -- OSAR COMMENTS
 --SELECT TOP 1 Comments FROM tblOpStatementHeader WHERE OpStatementHeaderId IN (@OpStmtList) ORDER BY StatementDate DESC
-
-
-
-
