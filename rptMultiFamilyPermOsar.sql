@@ -2,7 +2,7 @@
 USE CRE_ODS
 GO
 
-DECLARE @ServicerLoanNumber BIGINT = 600101593; --600101246 900100415 900100632 439119 
+DECLARE @ServicerLoanNumber BIGINT = 509172; --600101246 900100415 900100632 439119 
 DECLARE @debtService FLOAT
 DECLARE @startDate DATE = '2017-02-15', @endDate DATE = '2018-06-15';
 	
@@ -89,11 +89,13 @@ INSERT INTO @OpStmts
 	SELECT @ServicerLoanNumber, OpStatementHeaderId, StatementYear, CONVERT(DATE, StatementDate), ROW_NUMBER() OVER (ORDER BY StatementDate DESC)
 		FROM tblOpStatementHeader a 
 		WHERE OpStatementHeaderId IN ( --@OpStmtList)
-58,
-59,
-60,
-61,
-108
+--58,
+--59,
+--60,
+--61,
+--108
+2858, 2614 --FOR 509172
+
 )
 		
 		
@@ -135,10 +137,10 @@ SELECT
 	SUM(a.ItemAmountAdj) AS [ADJUSTMENTS], 
 	SUM(a.ItemAmountAfterAdjustment) AS [NORMALIZED]
 FROM tblOpStatementDetail a 
-	INNER JOIN tblOpStatementHeader b ON a.OpStatementHeaderId_F = b.OpStatementHeaderId
+	INNER JOIN tblOpStatementHeader b ON a.OpStatementHeaderId_F = b.OpStatementHeaderId 
 	INNER JOIN tblProperty c ON c.PropertyId = b.PropertyId_F
-	INNER JOIN tblNote d ON c.ControlId_F = d.ControlId_F
-	INNER JOIN tblNoteExp e ON d.NoteId = e.NoteId_F
+	--INNER JOIN tblNote d ON c.ControlId_F = d.ControlId_F
+	--INNER JOIN tblNoteExp e ON d.NoteId = e.NoteId_F
 	INNER JOIN tblzCdNOICategory f ON f.NOICategoryCd = a.NOICategoryCd_F
 	INNER JOIN tblzCdNOICategoryType g ON g.NOICategoryTypeCd = f.NOICategoryTypeCd_F
 	INNER JOIN @OpStmts h ON h.MD_STMT_ID = a.OpStatementHeaderId_F
@@ -182,7 +184,7 @@ UPDATE a SET a.LOANNUMBER = b.LOAN_NUMBER, a.MD_STATEMENT_ORDER = b.MD_STMT_ORDE
 	FROM @fnmaOsar a INNER JOIN @OpStmts b ON a.MD_STATEMENT_ID = b.MD_STMT_ID 
 
 INSERT INTO @fnmaOsar (MD_STATEMENT_ID, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_ORDER, MD_NOI_CAT_TYPE_NAME, STATEMENT_YEAR, NOI_CATEGORY, REPORTED) 
-	SELECT OpStatementHeaderId, 10, 900,'Income', StatementYear, 'Physical Occupancy', (Occupancy) FROM tblOpStatementHeader WHERE OpStatementHeaderId IN (SELECT MD_STMT_ID FROM @OpStmts)
+	SELECT OpStatementHeaderId, 10, 8990,'Income', StatementYear, 'Physical Occupancy', (Occupancy) FROM tblOpStatementHeader WHERE OpStatementHeaderId IN (SELECT MD_STMT_ID FROM @OpStmts)
 
 
 UPDATE a SET a.LOANNUMBER = b.LOAN_NUMBER, a.MD_STATEMENT_ORDER = b.MD_STMT_ORDER	
@@ -267,7 +269,7 @@ INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD
 						INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0 AND b.PropertyTypeMajorCd_F = (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId)
 						) ON a.NOI_CATEGORY = c.NOICategoryDesc AND a.MD_STATEMENT_ID = @tmpOpId
 					INNER JOIN @OpStmts d ON d.MD_STMT_ID = @tmpOpId
-				WHERE a.NOI_CATEGORY IS NULL AND b.InactiveSw = 0 AND b.TemplateSW = 1
+				WHERE a.NOI_CATEGORY IS NULL AND b.InactiveSw = 0 --AND b.TemplateSW = 1
 
 		FETCH NEXT FROM op_cursor INTO @tmpOpId
 	END
