@@ -26,7 +26,7 @@ SELECT 'STR', COUNT(*) FROM @loanMaster WHERE EFFDATE IS NOT NULL
 UNION
 SELECT 'IN BS', COUNT(*) FROM tblNote
 	
--- (1) FUNDED/CLOSED 
+-- MARK /CLOSED 
 	-- Mark Loan Status as Funded (and it does NOT lock the loan for asset management purposes)
 UPDATE tblControlMaster SET LoanStatusCd_F = 'F', AuditUpdateDate = GETDATE(), AuditUpdateUserId = 'SYSTEM' WHERE ControlId IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE IS NOT NULL)
 
@@ -36,3 +36,9 @@ UPDATE tblControlMasterDealPhaseTemplateItem SET
 	WHERE ControlId_F IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE IS NOT NULL) AND CompletedDate IS NULL AND WorkflowTemplateTypeCd_F = 'HCC'
 
 
+
+-- CHECK LOAN STATUS
+SELECT ControlId, SErvicerLoanNumber, LoanStatusDesc FROM tblControlMaster a INNER JOIN tblNOte b ON a.ControlId = b.ControlId_F INNER JOIN tblNoteExp c ON c.NoteId_f = b.NoteId 
+	AND c.ServicerLoanNumber IN (SELECT DISTINCT LOANNBR FROM HSB_HIST.STRATEGY_EXTRACT)
+	INNER JOIN tblzCdLoanStatus d ON d.LoanStatusCd = a.LoanStatusCd_F
+	WHERE LoanStatusDesc = 'Funded'
