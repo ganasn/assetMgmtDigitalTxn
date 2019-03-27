@@ -1,66 +1,38 @@
-USE Backshop
+USE CRE_ODS
+
+--USE Backshop
 GO
 
 --HBSEADWHT02.CRE_ODS.HSB_HIST.STRATEGY_EXTRACT
 
-DECLARE @LoanMaster TABLE (CONTROLID NVARCHAR (7), LOANNUMBER BIGINT, PROPTYPE NVARCHAR (3), EFFDATE DATE, MATURITYDATE DATE)
+DECLARE @LoanMaster TABLE (CONTROLID NVARCHAR (7), LOANNUMBER BIGINT, PROPTYPE NVARCHAR (3), EFFDATE DATE, LOANSTATUS NVARCHAR (50), LOANSTATUSCD NVARCHAR (20))
 
-INSERT INTO @LoanMaster
-	SELECT a.ControlId, c.ServicerLoanNUmber, e.PropertyTypeMajorCd_F AS [PROP_TYPE], MAX(d.DATA_EFFDATE), MAX(d.MATURITY_DATE) FROM dbo.tblControlMaster a 
-		INNER JOIN tblNote b ON a.ControlId = b.ControlId_F
-		INNER JOIN tblNoteExp c ON c.NoteId_F = b.NoteId
-		INNER JOIN tblProperty e ON e.ControlId_F = a.ControlId
-		LEFT JOIN HBSEADWHT02.CRE_ODS.HSB_HIST.STRATEGY_EXTRACT d ON d.[LOANNBR] = c.ServicerLoanNumber
-		GROUP BY a.ControlId, c.ServicerLoanNUmber, e.PropertyTypeMajorCd_F --, d.MATURITY_DATE
+INSERT INTO @LoanMaster 
+	SELECT a.ControlId, c.ServicerLoanNUmber, e.PropertyTypeMajorCd_F AS [PROP_TYPE], MAX(d.DATA_EFFDATE), f.LoanStatusDesc, f.LoanStatusCd
+		FROM dbo.tblControlMaster a 
+			INNER JOIN tblNote b ON a.ControlId = b.ControlId_F
+			INNER JOIN tblNoteExp c ON c.NoteId_F = b.NoteId
+			INNER JOIN tblProperty e ON e.ControlId_F = a.ControlId
+			INNER JOIN tblzCdLoanStatus f ON f.LoanStatusCd = a.LoanStatusCd_F
+			LEFT OUTER JOIN HBSEADWHP01.CRE_ODS.HSB_HIST.STRATEGY_EXTRACT d ON d.[LOANNBR] = c.ServicerLoanNumber
+		GROUP BY a.ControlId, c.ServicerLoanNUmber, e.PropertyTypeMajorCd_F, f.LoanStatusDesc, f.LoanStatusCd
 		ORDER BY a.ControlId, CONVERT(BIGINT, ServicerLoanNUmber)
 
-SELECT * FROM @loanMaster ORDER BY CONTROLID, LOANNUMBER
 
-	/*
--- (1) FUNDED/CLOSED & ACTIVE
-	-- Mark Loan Status as Funded
-UPDATE tblControlMaster SET LoanStatusCd_F = 'F', AuditUpdateDate = GETDATE(), AuditUpdateUserId = 'SYSTEM' WHERE ControlId IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE =  (SELECT MAX(EFFDATE) FROM @LoanMaster WHERE EFFDATE IS NOT NULL)) --CONVERT(DATE, DATEADD(d, -1, GETDATE())))
-
-	-- Mark production workflow (HCC) as COMPLETE
-UPDATE tblControlMasterDealPhaseTemplateItem SET 
-	CompletedDate = GETDATE(), SkippedSw = 1, AuditUpdateUserId = 'SYSTEM', AuditUpdateDate = GETDATE()
-	WHERE ControlId_F IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE = (SELECT MAX(EFFDATE) FROM @LoanMaster)) AND CompletedDate IS NULL AND WorkflowTemplateTypeCd_F = 'HCC'
-
-	-- Mark Asset Management Status as 'Performing'
-INSERT INTO tblAssetManagementStatusLog (ControlId_F, AssetManagementStatusCd_F, StatusStartDate, StatusEndDate, StatusLogUserFullName, AuditAddUserId, StatusUpdateDate, TroubledDebtRestructure) 
-	SELECT CONTROLID, 'PERFORM', GETDATE(), '2999-12-31 23:59:59.000', 'SYSTEM', 'SYSTEM', GETDATE(), 0 FROM @LoanMaster WHERE EFFDATE = (SELECT MAX(EFFDATE) FROM @LoanMaster)
-
--- (2) FUNDED/CLOSED & SOLD/MATURED
-	-- Mark Loan Status as Funded
-UPDATE tblControlMaster SET LoanStatusCd_F = 'F', AuditUpdateDate = GETDATE(), AuditUpdateUserId = 'SYSTEM' WHERE ControlId IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE < (SELECT MAX(EFFDATE) FROM @LoanMaster WHERE EFFDATE IS NOT NULL)) --CONVERT(DATE, DATEADD(d, -1, GETDATE())))
+--SELECT * FROM @loanMaster ORDER BY CONTROLID DESC, LOANNUMBER
+SELECT 'NO STR', COUNT(*) FROM @loanMaster WHERE EFFDATE IS NULL
+UNION
+SELECT 'STR', COUNT(*) FROM @loanMaster WHERE EFFDATE IS NOT NULL
+UNION
+SELECT 'IN BS', COUNT(*) FROM tblNote
+	
+-- (1) FUNDED/CLOSED 
+	-- Mark Loan Status as Funded (and it does NOT lock the loan for asset management purposes)
+UPDATE tblControlMaster SET LoanStatusCd_F = 'F', AuditUpdateDate = GETDATE(), AuditUpdateUserId = 'SYSTEM' WHERE ControlId IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE IS NOT NULL)
 
 	-- Mark production workflow (HCC) as COMPLETE
 UPDATE tblControlMasterDealPhaseTemplateItem SET 
 	CompletedDate = GETDATE(), SkippedSw = 1, AuditUpdateUserId = 'SYSTEM', AuditUpdateDate = GETDATE()
-	WHERE ControlId_F IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE = (SELECT MAX(EFFDATE) FROM @LoanMaster WHERE EFFDATE IS NOT NULL)) AND CompletedDate IS NULL AND WorkflowTemplateTypeCd_F = 'HCC'
-
-	-- Mark Asset Management Status as 'Sold'
-INSERT INTO tblAssetManagementStatusLog (ControlId_F, AssetManagementStatusCd_F, StatusStartDate, StatusEndDate, StatusLogUserFullName, AuditAddUserId, StatusUpdateDate, TroubledDebtRestructure) 
-	SELECT CONTROLID, 'SALE', GETDATE(), '2999-12-31 23:59:59.000', 'SYSTEM', 'SYSTEM', GETDATE(), 0 FROM @LoanMaster WHERE EFFDATE < (SELECT MAX(EFFDATE) FROM @LoanMaster WHERE EFFDATE IS NOT NULL)
-
-	*/
-
--- (3) DEAD
-	-- Fallouts
-UPDATE a SET a.LoanStatusCd_F = 'D', a.AuditUpdateDate = GETDATE(), a.AuditUpdateUserId = 'SYSTEM' 
-	FROM tblControlMaster a 
-		INNER JOIN tblNote b ON a.ControlId = b.ControlId_F INNER JOIN tblNoteExp c ON b.NoteId = c.NoteId_F AND c.ServicerLoanNumber IN (
-			600102190, 600102196, 600102116, 600102185, 600102031, 600102132, 600102186, 600102195, 600102187, 600102192, 600102193, 600102229, 600102208, 600102210, 600102209, 600102212, 600102218, 600102217, 600102219, 600102220, 600102224, 600102267,
-			600102225, 600102231, 600102233, 600102236, 600102237, 600102228, 600102216, 600102235, 600102227, 600102230, 600102226, 600102232, 600102234, 600102239, 600102241, 600102240, 600102249, 600102250, 600102050, 600102244, 600102251, 600102254,
-			600102252, 600102266, 900102665, 600102188, 600102207, 600102215, 600102202, 600102214, 600102261, 600102268, 600102272, 600102258, 900102662, 900102672, 600102149, 600102137, 600102262, 900102658, 900102650, 900102655, 900102663, 600102036, 
-			900102652, 600102044, 900102644, 900102635, 900102630, 900102674, 900102667, 900102677, 600102082, 600102081, 600102115, 600102112, 600102118, 600102128, 600102120, 600102122, 600102130, 600102131, 600102184, 600102062, 600102166, 600102101, 
-			600102169, 600102167, 600102172, 600102170, 600102178, 600102183, 600102182, 600102180, 600102191, 900102638, 600102197, 900102629)
-
-	-- Hold
-UPDATE a SET a.LoanStatusCd_F = 'P', a.AuditUpdateDate = GETDATE(), a.AuditUpdateUserId = 'SYSTEM' 
-	FROM tblControlMaster a INNER JOIN tblNote b ON a.ControlId = b.ControlId_F INNER JOIN tblNoteExp c ON b.NoteId = c.NoteId_F AND c.ServicerLoanNumber IN (
-		900102664, 900102624, 600102176, 600102189, 900102656, 600102194)
+	WHERE ControlId_F IN (SELECT CONTROLID FROM @LoanMaster WHERE EFFDATE IS NOT NULL) AND CompletedDate IS NULL AND WorkflowTemplateTypeCd_F = 'HCC'
 
 
--- (4) ACTIVE PIPELINE
-	-- Loans in active pipeline (aka production) have to be manually handled to update tasks & status accurately
