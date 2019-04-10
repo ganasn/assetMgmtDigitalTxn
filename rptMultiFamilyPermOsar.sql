@@ -2,8 +2,8 @@
 USE CRE_ODS
 GO
 
-DECLARE @ServicerLoanNumber BIGINT =  509172 --509172; --600101246 900100415 900100632 439119 
-DECLARE @debtServiceA FLOAT = 0, @debtServiceB FLOAT = 0;
+DECLARE @ServicerLoanNumber BIGINT =  900100632 -- 509172 600101246 900100415 900100632 439119 600102285
+DECLARE @debtServiceAParm MONEY = 0, @debtServiceBParm MONEY = 0;
 DECLARE @startDate DATE = '2017-02-15', @endDate DATE = '2018-06-15';
 	
 
@@ -14,9 +14,14 @@ DECLARE @startDate DATE = '2017-02-15', @endDate DATE = '2018-06-15';
 
 
 
--- PERIOD DATES TO COMPUTE DEBT SERVICE - SETUP AS A SEPARATE DATASET IN SSRS - BEGIN
+
+
+-- DEBT SERVICE - BEGIN - SETUP AS A SEPARATE DATASET IN SSRS
+DECLARE @Liens TABLE (FirstLien BIGINT, SecondLiens BIGINT, LienOrder INT, DSAmount MONEY) 
 DECLARE @eom TABLE (dates DATE)
 DECLARE @cntr DATE = EOMONTH(@startDate)
+DECLARE @debtServiceA MONEY = 0, @debtServiceB MONEY = 0;
+
 
 WHILE @cntr <= @endDate
 	BEGIN
@@ -26,9 +31,6 @@ WHILE @cntr <= @endDate
 		SET @cntr = DATEADD(m, 1, @cntr)
 	END
 -- PERIOD DATES TO COMPUTE DEBT SERVICE - SETUP AS A SEPARATE DATASET IN SSRS - END
-
--- DEBT SERVICE - BEGIN - SETUP AS A SEPARATE DATASET IN SSRS
-DECLARE @Liens TABLE (FirstLien BIGINT, SecondLiens BIGINT, LienOrder INT, DSAmount MONEY) 
 
 	-- DS: SETUP A & B NOTES FOR 2 YEARS
 INSERT INTO @Liens (FirstLien, SecondLiens, LienOrder)
@@ -70,17 +72,23 @@ UPDATE a SET
 		a.DSAmount = b.DS_AMT
 	FROM @Liens a INNER JOIN ds_cte b ON a.SecondLiens = b.LOANNBR 
 
-IF @debtServiceA = 0
+IF @debtServiceAParm <= 0
 	SELECT @debtServiceA = DSAmount FROM @Liens WHERE LienOrder = 1
-IF @debtServiceB = 0
+ELSE
+	SELECT @debtServiceA = @debtServiceAParm
+
+IF @debtServiceBParm <= 0
 	SELECT @debtServiceB = DSAmount FROM @Liens WHERE LienOrder = 2
+ELSE
+	SELECT @debtServiceB = @debtServiceBParm
 
 
-	-- DEBT SERVICE - END - THIS WILL BE INCORPORATED INTO REPORT IN ANOTHER DATASET
+-- DEBT SERVICE - END
 	
 
 -- FOUNDATION SETUP
 -- SSRS Parameter @OpStmtList captures Op Stmt Header Id of selected Op Stmts. Remove hard-coded Op Stmt Header Id's from below SQL and UNCOMMENT @OpStmtList
+
 DECLARE @OpStmts TABLE (
 	LOAN_NUMBER BIGINT, 
 	MD_STMT_ID INT, 
@@ -93,14 +101,8 @@ INSERT INTO @OpStmts
 	SELECT @ServicerLoanNumber, OpStatementHeaderId, StatementYear, CONVERT(DATE, StatementDate), ROW_NUMBER() OVER (ORDER BY StatementDate DESC)
 		FROM tblOpStatementHeader a 
 		WHERE OpStatementHeaderId IN ( --@OpStmtList)
---58,
---59,
---60,
---61,
---108
-2858, 2614 --FOR 509172
-
-)
+			SELECT DISTINCT OpStatementHeaderId FROM tblOpStatementHeader INNER JOIN tblProperty b ON PropertyId = PropertyId_F INNER JOIN tblNote c ON c.ControlId_F = b.ControlId_F INNER JOIN tblNoteExp d ON d.NoteId_F = c.NoteId AND d.ServicerLoanNumber = @ServicerLoanNumber
+		)
 		
 		
 
@@ -241,15 +243,12 @@ INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD
 	
 INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD_NOI_CAT_TYPE_NAME, MD_STATEMENT_ID, MD_NOI_CAT_ORDER, STATEMENT_YEAR, NOI_CATEGORY, REPORTED, NORMALIZED) 	
 	SELECT b.LOANNUMBER, b.MD_STATEMENT_ORDER, b.MD_NOI_CAT_TYPE_ORDER, b.MD_NOI_CAT_TYPE_NAME, b.MD_STATEMENT_ID, 9940, b.STATEMENT_YEAR, 'Expense % of EGI', b.REPORTED/NULLIF(a.REPORTED, 0), b.NORMALIZED/NULLIF(a.NORMALIZED, 0)
-		FROM @fnmaOsar a INNER JOIN @fnmaOsar b ON a.MD_STATEMENT_ID = b.MD_STATEMENT_ID AND b.NOI_CATEGORY LIKE '%Total%Expense%' AND a.NOI_CATEGORY LIKE '%eff%gross%inc%' 
+		FROM @fnmaOsar a INNER JOIN @fnmaOsar b ON a.MD_STATEMENT_ID = b.MD_STATEMENT_ID AND b.NOI_CATEGORY LIKE '%Total%Expenses' AND a.NOI_CATEGORY LIKE '%eff%gross%inc%' 
 	UNION
 	SELECT b.LOANNUMBER, b.MD_STATEMENT_ORDER, b.MD_NOI_CAT_TYPE_ORDER, b.MD_NOI_CAT_TYPE_NAME, b.MD_STATEMENT_ID, 9945, b.STATEMENT_YEAR, 'Management Fee % of EGI', b.REPORTED/NULLIF(a.REPORTED, 0), b.NORMALIZED/NULLIF(a.NORMALIZED, 0)
 		FROM @fnmaOsar a INNER JOIN @fnmaOsar b ON a.MD_STATEMENT_ID = b.MD_STATEMENT_ID AND b.NOI_CATEGORY LIKE '%mana%fee%' AND a.NOI_CATEGORY LIKE '%eff%gross%inc%'
 		
-
-
-
-		
+	
 -- Gana: Accounting for missing NOI categories - BEGIN
 
 	DECLARE @tmpOpId INT 
