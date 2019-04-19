@@ -2,7 +2,7 @@
 USE CRE_ODS
 GO
 
-DECLARE @ServicerLoanNumber BIGINT =  900100632 -- 509172 600101246 900100415 900100632 439119 600102285
+DECLARE @ServicerLoanNumber BIGINT = 600101614 		-- 600101614 509172 600101246 900100415 900100632 439119 600102285
 DECLARE @debtServiceAParm MONEY = 0, @debtServiceBParm MONEY = 0;
 DECLARE @startDate DATE = '2017-02-15', @endDate DATE = '2018-06-15';
 	
@@ -250,7 +250,51 @@ INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD
 		
 	
 -- Gana: Accounting for missing NOI categories - BEGIN
+	-- Gana on 4/18/19: Added TABLE variable to hold CML NOI categories per Asset Management (Origination has a different list and that is also active) - BEGIN
+	DECLARE @NOICategories TABLE (NOICategoryTypeCd_F NVARCHAR (1), NOICategoryCd NVARCHAR (3), OrderKey INT, NOICategoryDesc NVARCHAR (50))
+	IF (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId) NOT IN ('MLT', 'FMM')
+	BEGIN
+		INSERT INTO @NOICategories 
+			SELECT DISTINCT NOICategoryTypeCd_F, NOICategoryCd, c.OrderKey, NOICategoryDesc 
+				FROM tblzCdNOICatPropType b 
+					INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0
+						AND NOICategoryCd IN (
+							'ISR',
+							'VCL',
+							'ICA',
+							'LFE',
+							'IPK',
+							'OIV',
+							'IUA',
+							'IPR',
+							'OMF',
+							'OGA',
+							'OPY',
+							'OUT',
+							'SC4',
+							'ORM',
+							'OIN',
+							'RET',
+							'MLE',
+							'CRS',
+							'CEO',
+							'CTI',
+							'CCO'
+						)
+					ORDER BY c.OrderKey, NOICategoryTypeCd_F
+	END
+	ELSE
+	BEGIN
+		INSERT INTO @NOICategories 
+			SELECT DISTINCT NOICategoryTypeCd_F, NOICategoryCd, c.OrderKey, NOICategoryDesc 
+				FROM tblzCdNOICatPropType b 
+					INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0 AND b.PropertyTypeMajorCd_F = (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId) 					
+					ORDER BY c.OrderKey, NOICategoryTypeCd_F
+	END
 
+	-- Gana on 4/18/19: Added TABLE variable to hold CML NOI categories per Asset Management (Origination has a different list and that is also active) - END
+						
+	
 	DECLARE @tmpOpId INT 
 	DECLARE op_cursor CURSOR FOR
 		SELECT MD_STMT_ID FROM @OpStmts;
@@ -272,11 +316,18 @@ INSERT INTO @fnmaOsar (LOANNUMBER, MD_STATEMENT_ORDER, MD_NOI_CAT_TYPE_ORDER, MD
 					WHEN c.NOICategoryTypeCd_F = 'C' THEN 'Capital Expenditures'
 				END, @tmpOpId, c.OrderKey, d.STMT_NAME, c.NOICategoryDesc, 0, 0, 0
 				FROM @fnmaOsar a 
-					RIGHT JOIN (tblzCdNOICatPropType b 
-						INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0 AND b.PropertyTypeMajorCd_F = (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId)
-						) ON a.NOI_CATEGORY = c.NOICategoryDesc AND a.MD_STATEMENT_ID = @tmpOpId
+					RIGHT JOIN 
+					-- Gana on 4/18/19: Using TABLE variable that holds CML NOI categories per Asset Management (Origination has a different list and that is also active) - BEGIN
+
+						--( 
+						--tblzCdNOICatPropType b 
+						--	INNER JOIN tblzCdNOICategory c ON b.NOICategoryCd_F = c.NOICategoryCd AND b.InactiveSw = 0 AND b.PropertyTypeMajorCd_F = (SELECT PropertyTypeMajorCd_F FROM tblProperty WHERE ControlId_F = @ControlId)
+						--)
+							@NOICategories c
+					-- Gana on 4/18/19: Using TABLE variable that holds CML NOI categories per Asset Management (Origination has a different list and that is also active) - END
+						 ON a.NOI_CATEGORY = c.NOICategoryDesc AND a.MD_STATEMENT_ID = @tmpOpId
 					INNER JOIN @OpStmts d ON d.MD_STMT_ID = @tmpOpId
-				WHERE a.NOI_CATEGORY IS NULL AND b.InactiveSw = 0 --AND b.TemplateSW = 1
+				WHERE a.NOI_CATEGORY IS NULL -- AND b.InactiveSw = 0 AND b.TemplateSW = 1
 
 		FETCH NEXT FROM op_cursor INTO @tmpOpId
 	END
